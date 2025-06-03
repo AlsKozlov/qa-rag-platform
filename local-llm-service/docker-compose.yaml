@@ -1,0 +1,21 @@
+version: '3'
+
+# docker-compose -f docker-compose.dev.yml build
+# docker-compose -f docker-compose.dev.yml up -d
+services:
+    
+  app:
+    image: local_model
+    build:
+      context: .
+    container_name: local_model
+    command: sh -c "gunicorn app.main:app --worker-class uvicorn.workers.UvicornWorker --bind=0.0.0.0:8081"    
+    ports:
+      - 8000:8000
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

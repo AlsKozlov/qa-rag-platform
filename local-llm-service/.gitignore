@@ -1,0 +1,4 @@
+venv
+.env
+models/wav2vec2_optimized.onnx
+models/wav2vec2.onnx
