@@ -1,0 +1,61 @@
+stages:
+  - lint
+  - test
+  - build
+  - deploy
+
+before_script:
+  - python -m pip install --upgrade pip
+
+lint-rag-api-service:
+  stage: lint
+  image: python:3.11
+  script:
+    - pip install flake8
+    - flake8 app tests
+  rules:
+    - changes:
+        - rag-api-service/**/*
+
+test-rag-api-service:
+  stage: test
+  image: python:3.11
+  services:
+    - name: postgres:15.3
+      alias: db
+    - name: elasticsearch:8.10.0
+      alias: elastic
+  script:
+    - pip install -r requirements.txt
+    - pip install pytest pytest-asyncio httpx
+    - pytest tests
+  rules:
+    - changes:
+        - rag-api-service/**/*
+
+build-rag-api-service:
+  stage: build
+  image: docker:24.0
+  services:
+    - docker:dind
+  script:
+    - docker build -t rag-api-service:${CI_COMMIT_SHORT_SHA} .
+  rules:
+    - changes:
+        - rag-api-service/**/*
+
+deploy-rag-api-service:
+  stage: deploy
+  image: alpine:3.19.1
+  script:
+    - apk add --no-cache openssh
+    - ssh $RAG_API_SSH_USER@$RAG_API_VIRTUAL_HOST "
+        cd $RAG_API_DEPLOY_PATH &&
+        git pull &&
+        docker build -t rag-api-service:latest . &&
+        docker-compose down &&
+        docker-compose up -d
+      "
+  rules:
+    - changes:
+        - rag-api-service/**/*

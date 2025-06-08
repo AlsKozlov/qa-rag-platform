@@ -1,0 +1,63 @@
+stages:
+  - lint
+  - test
+  - build
+  - deploy
+
+lint-etl:
+  stage: lint
+  image: python:3.10
+  script:
+    - echo "Running black and flake8 for Airflow DAGs and services..."
+    - pip install black flake8
+    - black --check etl/dags etl/dags/services
+    - flake8 etl/dags etl/dags/services
+  rules:
+    - changes:
+        - etl/**/*
+
+test-etl:
+  stage: test
+  image: python:3.10
+  script:
+    - echo "Running tests for ETL service..."
+    - pip install pytest python-dotenv
+    - pytest tests/
+  rules:
+    - changes:
+        - etl/**/*
+
+build-etl:
+  stage: build
+  image: docker:24.0
+  services:
+    - docker:24.0-dind
+  script:
+    - echo "Building Airflow Docker image for ETL..."
+    - docker build -t $DOCKER_IMAGE .
+    - echo "Pushing Airflow Docker image to registry..."
+    - echo $CI_JOB_TOKEN | docker login -u gitlab-ci-token --password-stdin $DOCKER_REGISTRY
+    - docker push $DOCKER_IMAGE
+  rules:
+    - changes:
+        - etl/**/*
+
+deploy-etl:
+  stage: deploy
+  image: alpine:3.19.1
+  script:
+    - echo "Deploying Airflow to server..."
+    - apk add --no-cache openssh
+    - mkdir -p ~/.ssh
+    - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+    - chmod 600 ~/.ssh/id_rsa
+    - ssh -o StrictHostKeyChecking=no $SSH_USER@$SSH_HOST "
+        cd /path/to/your/project &&
+        git pull &&
+        docker compose pull &&
+        docker compose down &&
+        docker compose up -d
+      "
+  rules:
+    - changes:
+        - etl/**/*

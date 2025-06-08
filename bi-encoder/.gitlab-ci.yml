@@ -1,0 +1,76 @@
+stages:
+  - lint
+  - test
+  - build
+  - deploy
+
+lint-bi-encoder:
+  stage: lint
+  image: python:3.9
+  script:
+    - pip install flake8
+    - flake8 app routers tests
+  rules:
+    - changes:
+        - bi-encoder/**/*
+        - model.dvc
+
+test-bi-encoder:
+  stage: test
+  image: python:3.9
+  script:
+    - pip install -r requirements.txt
+    - pip install pytest
+    - pytest tests/unit tests/integration
+  rules:
+    - changes:
+        - bi-encoder/**/*
+        - model.dvc
+
+build-bi-encoder:
+  stage: build
+  image: docker:24.0
+  services:
+    - docker:24.0-dind
+  script:
+    - docker build -t bi-encoder:${CI_COMMIT_SHORT_SHA} .
+  rules:
+    - changes:
+        - bi-encoder/**/*
+        - model.dvc
+
+deploy-bi-encoder:
+  stage: deploy
+  image: python:3.9
+  script:
+    - apt-get update && apt-get install -y sshpass
+    - |
+      if git diff --name-only $CI_COMMIT_BEFORE_SHA $CI_COMMIT_SHA | grep -q -E 'app/|routers/|tests/|requirements.txt'; then
+        echo "Code changed: Pulling latest code and rebuilding container on VM"
+        sshpass -p "$SSH_PASSWORD" ssh $BI_ENCODER_SSH_USER@$BI_ENCODER_VIRTUAL_HOST "
+          cd $BI_ENCODER_DEPLOY_PATH && 
+          git pull && 
+          docker build -t bi-encoder:latest . && 
+          docker stop bi-encoder || true && 
+          docker rm bi-encoder || true && 
+          docker run -d --name bi-encoder -p 8000:8000 bi-encoder:latest
+        "
+      elif git diff --name-only $CI_COMMIT_BEFORE_SHA $CI_COMMIT_SHA | grep -q 'model.dvc'; then
+        echo "Model changed: Testing locally, then updating model on VM"
+        pip install dvc
+        dvc pull
+        pip install pytest
+        pytest tests/unit tests/integration
+        sshpass -p "$SSH_PASSWORD" ssh $BI_ENCODER_SSH_USER@$BI_ENCODER_VIRTUAL_HOST "
+          cd $BI_ENCODER_DEPLOY_PATH && 
+          pip install dvc && 
+          dvc pull && 
+          docker restart bi-encoder || docker run -d --name bi-encoder -p 8000:8000 bi-encoder:latest
+        "
+      else
+        echo "Nothing to deploy"
+      fi
+  rules:
+    - changes:
+        - bi-encoder/**/*
+        - model.dvc

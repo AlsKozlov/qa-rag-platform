@@ -1,0 +1,54 @@
+stages:
+  - lint
+  - test
+  - build
+  - deploy
+
+before_script:
+  - python -m pip install --upgrade pip
+
+lint-local-llm-service:
+  stage: lint
+  image: python:3.10
+  script:
+    - pip install flake8
+    - flake8 app routers
+  rules:
+    - changes:
+        - local-llm-service/**/*
+
+test-local-llm-service:
+  stage: test
+  image: python:3.10
+  script:
+    - pip install -r requirements.txt
+    - python -m unittest discover -s tests
+  rules:
+    - changes:
+        - local-llm-service/**/*
+
+build-local-llm-service:
+  stage: build
+  image: docker:24.0
+  services:
+    - docker:24.0-dind
+  script:
+    - docker build -t local-llm-service .
+  rules:
+    - changes:
+        - local-llm-service/**/*
+
+deploy-local-llm-service:
+  stage: deploy
+  image: alpine:3.19.1
+  script:
+    - apk add --no-cache openssh
+    - ssh $LOCAL_LLM_SERVICE_SSH_USER@$LOCAL_LLM_SERVICE_VIRTUAL_HOST "
+        cd $LOCAL_LLM_SERVICE_DEPLOY_PATH &&
+        git pull &&
+        docker-compose down &&
+        docker-compose up -d --build
+      "
+  rules:
+    - changes:
+        - local-llm-service/**/*

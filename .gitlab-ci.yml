@@ -1,0 +1,7 @@
+include:
+  - local: 'bi-encoder/.gitlab-ci.yml'
+  - local: 'local-llm-service/.gitlab-ci.yml'
+  - local: 'rag-api-service/.gitlab-ci.yml'
+  - local: 'tg-bot/.gitlab-ci.yml'
+  - local: 'etl/.gitlab-ci.yml'
+  - local: 'sft-pipeline/.gitlab-ci.yml'

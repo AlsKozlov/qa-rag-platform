@@ -3,7 +3,6 @@ from sentence_transformers.models import Pooling, Transformer
 from app.config import settings
 
 def get_bi_encoder():
-
     raw_model = Transformer(model_name_or_path=settings.MODEL_NAME)
 
     bi_encoder_dim = raw_model.get_word_embedding_dimension()

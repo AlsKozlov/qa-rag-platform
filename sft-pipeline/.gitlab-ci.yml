@@ -1,0 +1,61 @@
+stages:
+  - lint
+  - test
+  - build
+  - deploy
+
+sft-pipeline-lint:
+  stage: lint
+  image: python:3.10
+  script:
+    - echo "Running flake8 for sft-pipeline..."
+    - pip install flake8
+    - flake8 sft-pipeline/
+  rules:
+    - changes:
+        - sft-pipeline/**/*
+
+sft-pipeline-test:
+  stage: test
+  image: python:3.10
+  script:
+    - echo "Running tests for sft-pipeline..."
+    - pip install pytest python-dotenv
+    - pytest tests/
+  rules:
+    - changes:
+        - sft-pipeline/**/*
+
+sft-pipeline-build:
+  stage: build
+  image: docker:24.0
+  services:
+    - docker:24.0-dind
+  script:
+    - echo "Building Docker image for sft-pipeline..."
+    - docker build -t $SFT_PIPELINE_IMAGE .
+    - echo "Pushing Docker image to registry..."
+    - echo $CI_JOB_TOKEN | docker login -u gitlab-ci-token --password-stdin $DOCKER_REGISTRY
+    - docker push $SFT_PIPELINE_IMAGE
+  rules:
+    - changes:
+        - sft-pipeline/**/*
+
+sft-pipeline-deploy:
+  stage: deploy
+  image: alpine:3.19.1
+  script:
+    - echo "Deploying sft-pipeline to server..."
+    - mkdir -p ~/.ssh
+    - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+    - chmod 600 ~/.ssh/id_rsa
+    - ssh -o StrictHostKeyChecking=no $SSH_USER@$SSH_HOST "
+        cd /path/to/sft-pipeline &&
+        git pull &&
+        docker compose pull &&
+        docker compose down &&
+        docker compose up -d
+      "
+  rules:
+    - changes:
+        - sft-pipeline/**/*

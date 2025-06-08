@@ -1,0 +1,6 @@
+[core]
+    remote = aleksan_s3_bucket
+['remote "aleksan_s3_bucket"']
+    url = s3://aleksan-kozlov/
+    use_ssl = "true"
+    endpointurl  = https://s3.lab.karpov.courses

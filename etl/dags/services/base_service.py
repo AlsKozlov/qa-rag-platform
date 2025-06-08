@@ -1,51 +1,71 @@
-from langchain_text_splitters import HTMLHeaderTextSplitter
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-import os
-from pymilvus import MilvusClient
 from typing import List
+import re
 
 
-VEC_URI = os.getenv("AIRFLOW_VAR_VEC_URI")
-COLLECTION_NAME = os.getenv("AIRFLOW_VAR_COLLECTION_NAME")
-
-MILVUS_CLIENT = MilvusClient(uri=VEC_URI)
-
-
-def has_milvus_collection() -> bool:
-
-    return MILVUS_CLIENT.has_collection(collection_name=COLLECTION_NAME)
+def clean_text(text: str) -> str:
+    text = re.sub(r'\s+', ' ', text)
+    text = re.sub(r'[■●◆▪►◄•♦✓✔➤→←⇨»«►▶]', '', text)
+    text = re.sub(r'\.{3,}', '...', text)
+    text = re.sub(r'-{2,}', '-', text)
+    return text.strip()
 
 
-def insert_data(data: list):
-
-    MILVUS_CLIENT.insert(collection_name="", data=data)
-
-
-def delete_raws_by_source(source):
-
-    MILVUS_CLIENT.delete(
-        collection_name=COLLECTION_NAME,
-        filter= f"source == {source}"
-    )
+def filter_chunks(chunks: List[str], min_chars: int = 100) -> List[str]:
+    cleaned = []
+    for chunk in chunks:
+        text = re.sub(r'\s+', ' ', chunk).strip()
+        letter_count = sum(c.isalpha() for c in text)
+        if len(text) >= min_chars and letter_count / len(text) > 0.5:
+            cleaned.append(text)
+    return cleaned
 
 
-def load_milvus_collection():
-    MILVUS_CLIENT.load_collection(collection_name=COLLECTION_NAME)
+def deduplicate_chunks(chunks: List[str]) -> List[str]:
+    seen = set()
+    unique = []
+    for chunk in chunks:
+        norm = chunk.strip().lower()
+        if norm not in seen:
+            seen.add(norm)
+            unique.append(chunk)
+    return unique
 
 
-def html_splitter(html_string, 
-                  headers_to_split_on, 
-                  chunk_size, 
-                  chunk_overlap) -> List:
+def has_capslock_block(text: str, min_len: int = 3, ratio: float = 0.5) -> bool:
+    clean = re.sub(r'[^A-Za-zА-Яа-я0-9 ]', '', text)
+    upper_count = sum(1 for c in clean if c.isupper())
+    total = sum(1 for c in clean if c.isalpha())
+    upper_runs = re.findall(r'[A-ZА-Я]{' + str(min_len) + r',}', clean)
+    if upper_runs or (total > 0 and upper_count / total >= ratio):
+        return True
+    return False
 
-  html_splitter = HTMLHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
 
-  html_header_splits = html_splitter.split_text(html_string)
+def is_heading(paragraph) -> bool:
+    text = paragraph.text.strip()
+    if re.match(r'^(ГЛАВА|СТАТЬЯ)\s+\d+[\.\)]?', text.upper()):
+        return True
+    runs = paragraph.runs
+    if runs and any(run.bold for run in runs):
+        if has_capslock_block(text, min_len=3, ratio=0.5):
+            return True
+    if len(runs) == 1:
+        run = runs[0]
+        if run.bold and text.isupper() and len(text) > 5:
+            return True
+    return False
 
-  text_splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, 
-                                                 chunk_overlap=chunk_overlap, 
-                                                 separators=["\n\n", "\n", "</strong>"])
 
-  splits = text_splitter.split_documents(html_header_splits)
-
-  return splits
+def split_by_sentences(text: str, max_len: int = 12000) -> List[str]:
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    chunks = []
+    buffer = ""
+    for sentence in sentences:
+        if len(buffer) + len(sentence) <= max_len:
+            buffer += sentence + " "
+        else:
+            chunks.append(buffer.strip())
+            buffer = sentence + " "
+    if buffer:
+        chunks.append(buffer.strip())
+    return chunks

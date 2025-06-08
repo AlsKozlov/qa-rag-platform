@@ -8,11 +8,9 @@ router = APIRouter(
    tags=["Encode incoming text"]
 )
 
-@router.get("/api/encode")
+@router.post("/api/encode")
 async def get_answer(req: EncoderRequest) -> EncoderResponse:
-
    vector = encode_process(BI_ENCODER, req.chunk)
-
    vector = vector.numpy().tolist()
 
    return EncoderResponse(vector=vector)

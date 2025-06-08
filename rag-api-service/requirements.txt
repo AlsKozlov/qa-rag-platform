@@ -69,4 +69,4 @@ flower
 asyncpg
 Redis
 faststream[redis]
-gunicorn
+gunicorn==23.0.0

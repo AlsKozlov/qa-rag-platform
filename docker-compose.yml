@@ -2,7 +2,7 @@ version: '3'
 
 services:
   db:
-    image: postgres:latest
+    image: postgres:16.1
     container_name: db-application
     env_file:
       - ./rag-api-service/.env 
@@ -16,38 +16,58 @@ services:
       - "5433:5432"
 
   redis:
-    image: redis:latest
+    image: redis:7.2.3
     restart: always
     ports:
       - "6379:6379"
     volumes:
-      - .rd/dаta:/root/redis
-    
-  app:
-    image: llm_app
+      - .rd/data:/root/redis
+
+  rag-api:
+    image: rag-api
     build:
       context: ./rag-api-service
     container_name: llm_app
     env_file:
       - ./rag-api-service/.env 
-    command: sh -c "alembic upgrade head && gunicorn app.main:app --worker-class uvicorn.workers.UvicornWorker --bind=0.0.0.0:8000"    
+    command: sh -c "alembic upgrade head && gunicorn app.main:app --worker-class uvicorn.workers.UvicornWorker --bind=0.0.0.0:8000"
     ports:
       - 8000:8000
     depends_on:
       - db
-      
+
+  bi_encoder:
+    image: bi_encoder
+    build:
+      context: .
+    container_name: bi_encoder
+    command: sh -c "uvicorn app.main:app --host=0.0.0.0 --port=8000"
+    ports:
+      - 8001:8001
+    environment:
+      - HF_ENDPOINT=https://hf-mirror.com
+
+  local_model:
+    image: local_model
+    build:
+      context: .
+    container_name: local_model
+    command: sh -c "gunicorn app.main:app --worker-class uvicorn.workers.UvicornWorker --bind=0.0.0.0:8002"    
+    ports:
+      - 8002:8002
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
   es01:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
     container_name: es01
     environment:
-      - node.name=es01
-      - cluster.name=es-cluster
-      - discovery.seed_hosts=es02,es03
-      - cluster.initial_master_nodes=es01,es02,es03
-      - bootstrap.memory_lock=true
-      - xpack.security.enabled=true
-      - xpack.security.http.ssl.enabled=false
-      - xpack.search.knn=true
+      - NODE_NAME=es01
       - ELASTIC_PASSWORD_FILE=/run/secrets/elastic_password
       - ES_JAVA_OPTS=-Xms2g -Xmx2g
     ulimits:
@@ -56,6 +76,7 @@ services:
         hard: -1
     volumes:
       - esdata01:/usr/share/elasticsearch/data
+      - ./elasticsearch/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
     ports:
       - "9200:9200"
     secrets:
@@ -65,14 +86,7 @@ services:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
     container_name: es02
     environment:
-      - node.name=es02
-      - cluster.name=es-cluster
-      - discovery.seed_hosts=es01,es03
-      - cluster.initial_master_nodes=es01,es02,es03
-      - bootstrap.memory_lock=true
-      - xpack.security.enabled=true
-      - xpack.security.http.ssl.enabled=false
-      - xpack.search.knn=true
+      - NODE_NAME=es02
       - ELASTIC_PASSWORD_FILE=/run/secrets/elastic_password
       - ES_JAVA_OPTS=-Xms2g -Xmx2g
     ulimits:
@@ -81,6 +95,7 @@ services:
         hard: -1
     volumes:
       - esdata02:/usr/share/elasticsearch/data
+      - ./elasticsearch/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
     secrets:
       - elastic_password
 
@@ -88,14 +103,7 @@ services:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
     container_name: es03
     environment:
-      - node.name=es03
-      - cluster.name=es-cluster
-      - discovery.seed_hosts=es01,es02
-      - cluster.initial_master_nodes=es01,es02,es03
-      - bootstrap.memory_lock=true
-      - xpack.security.enabled=true
-      - xpack.security.http.ssl.enabled=false
-      - xpack.search.knn=true
+      - NODE_NAME=es03
       - ELASTIC_PASSWORD_FILE=/run/secrets/elastic_password
       - ES_JAVA_OPTS=-Xms2g -Xmx2g
     ulimits:
@@ -104,6 +112,7 @@ services:
         hard: -1
     volumes:
       - esdata03:/usr/share/elasticsearch/data
+      - ./elasticsearch/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
     secrets:
       - elastic_password
 
@@ -123,6 +132,23 @@ services:
     secrets:
       - elastic_password
 
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:2.11.1
+    container_name: mlflow
+    environment:
+      - MLFLOW_TRACKING_URI=http://0.0.0.0:5000
+      - ARTIFACT_ROOT=/mlflow/mlruns
+    volumes:
+      - ./mlflow/mlruns:/mlflow/mlruns
+    ports:
+      - "5000:5000"
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri sqlite:///mlflow/mlruns/mlflow.db
+      --default-artifact-root /mlflow/mlruns
+
 volumes:
   esdata01:
   esdata02:
@@ -130,4 +156,4 @@ volumes:
 
 secrets:
   elastic_password:
-    file: ./secrets/elastic_password.txt
+    file: ./elasticsearch/elastic_password.txt

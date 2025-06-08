@@ -1,0 +1,43 @@
+stages:
+  - lint
+  - build
+  - deploy
+
+before_script:
+  - python -m pip install --upgrade pip
+
+lint-tg-bot:
+  stage: lint
+  image: python:3.11
+  script:
+    - pip install flake8
+    - flake8 main.py
+  rules:
+    - changes:
+        - tg-bot/**/*
+
+build-tg-bot:
+  stage: build
+  image: docker:24.0
+  services:
+    - docker:dind
+  script:
+    - docker build -t tg-bot:${CI_COMMIT_SHORT_SHA} .
+  rules:
+    - changes:
+        - tg-bot/**/*
+
+deploy-tg-bot:
+  stage: deploy
+  image: alpine:3.19.1
+  script:
+    - apk add --no-cache openssh
+    - ssh $TG_BOT_SSH_USER@$TG_BOT_VIRTUAL_HOST "
+        cd $TG_BOT_DEPLOY_PATH &&
+        git pull &&
+        docker-compose down &&
+        docker-compose up -d --build
+      "
+  rules:
+    - changes:
+        - tg-bot/**/*
